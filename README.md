@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Next.js + Supabase Playground
 
-## Getting Started
+A beginner-friendly, minimal playground built with Next.js App Router (16.4+), TypeScript, plain CSS, `@supabase/supabase-js`, and `@supabase/ssr`.
 
-First, run the development server:
+It demonstrates three core full-stack architectural concepts:
+1. **Server Components vs Client Components** (direct server data fetching vs interactive form state).
+2. **Supabase Auth with HTTP-only Cookies** (using `@supabase/ssr` and Next.js 16 `proxy.ts`).
+3. **PostgreSQL Row Level Security (RLS)** using `auth.uid() = user_id`.
 
+---
+
+## 🚀 Quick Start
+
+### 1. Configure Environment Variables
+Copy `.env.example` to `.env.local` if you haven't already:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `.env.local` and insert your Supabase credentials:
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-public-key
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> **Security Warning:** NEVER expose or add the `service_role` secret key to client code or `.env.local`. Only use the public `anon` key.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. Supabase Dashboard Setup
+1. Log in to [Supabase](https://supabase.com/dashboard) and create a new project.
+2. Go to the **SQL Editor** tab from the left sidebar.
+3. Open [`supabase-schema.sql`](./supabase-schema.sql) in this repository, paste the SQL statements into the SQL editor, and click **Run**.
+4. Retrieve your keys from **Project Settings → API**:
+   - Copy **Project URL**
+   - Copy **anon public** key
+5. *(Optional for local testing)*: In **Authentication → Providers → Email**, you can disable **"Confirm email"** to allow immediate logins without waiting for confirmation emails.
 
-## Learn More
+### 3. Install Dependencies
+```bash
+npm install
+```
 
-To learn more about Next.js, take a look at the following resources:
+### 4. Run the Development Server
+```bash
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 5. Stopping the Server
+Press `Ctrl + C` in the terminal where `npm run dev` is running.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🛠️ Architecture & Concepts
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 1. Server Components vs Client Components
+- [`app/tasks/page.tsx`](file:///home/lintangad/Projects/nextjs-supabase-playground/app/tasks/page.tsx): **Server Component**. Fetches user session and task data directly on the server before streaming HTML. Zero client-side `useEffect`, no network waterfalls, no loading spinners.
+- [`app/tasks/AddTaskForm.tsx`](file:///home/lintangad/Projects/nextjs-supabase-playground/app/tasks/AddTaskForm.tsx): **Client Component**. Manages interactive input state and pending button feedback via React 19's `useActionState`, then invokes Server Actions in `app/actions/auth.ts`.
+- [`app/tasks/TaskItem.tsx`](file:///home/lintangad/Projects/nextjs-supabase-playground/app/tasks/TaskItem.tsx): **Client Component**. Handles task toggling and deletion using React transitions.
+
+### 2. Supabase Auth with Cookies (`@supabase/ssr`)
+- [`lib/supabase/server.ts`](file:///home/lintangad/Projects/nextjs-supabase-playground/lib/supabase/server.ts): Uses `createServerClient` and `cookies()` (awaited in Next.js 16) to read and write session cookies.
+- [`lib/supabase/client.ts`](file:///home/lintangad/Projects/nextjs-supabase-playground/lib/supabase/client.ts): Uses `createBrowserClient` for client-side interactions.
+- [`proxy.ts`](file:///home/lintangad/Projects/nextjs-supabase-playground/proxy.ts): Next.js 16 proxy convention (replaces deprecated `middleware.ts`). Refreshes expired sessions and enforces route guards (`/tasks` requires an active session).
+- [`app/actions/auth.ts`](file:///home/lintangad/Projects/nextjs-supabase-playground/app/actions/auth.ts): Server Actions for `login`, `signup`, `logout`, `addTask`, `toggleTask`, and `deleteTask`.
+
+### 3. PostgreSQL Row Level Security (RLS)
+The `tasks` table has RLS enabled with policies:
+```sql
+CREATE POLICY "Users can view own tasks" ON public.tasks
+  FOR SELECT USING (auth.uid() = user_id);
+```
+Even if the client executes `supabase.from('tasks').select('*')`, PostgreSQL extracts the authenticated user's ID from the JWT (`auth.uid()`) and guarantees only their rows are returned.
+
+### 🧪 RLS Demonstration Experiment
+1. Create Account A and add tasks.
+2. Open an Incognito window, create Account B, and add different tasks.
+3. In Supabase SQL Editor run: `ALTER TABLE public.tasks DISABLE ROW LEVEL SECURITY;`
+4. Refresh both browsers: Both users will now see all tasks from everyone!
+5. In SQL Editor run: `ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;`
+6. Refresh both browsers: Isolation is restored immediately without changing any application code.
